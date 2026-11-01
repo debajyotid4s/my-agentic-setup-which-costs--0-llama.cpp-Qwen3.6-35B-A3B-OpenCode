@@ -1,0 +1,49 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  "model": "v100/qwen3.6-35b-a3b",
+  "small_model": "opencode/deepseek-v4.1-flash-free",
+
+  "compaction": {
+    "auto": true,
+    "prune": false,
+    "reserved": 49152
+  },
+
+  "agent": {
+    "build":      { "temperature": 0.6, "top_p": 0.95 },
+    "plan":       { "temperature": 0.6, "top_p": 0.95 },
+    "general":    { "temperature": 0.6, "top_p": 0.95 },
+    "explore":    { "temperature": 0.6, "top_p": 0.95 },
+    "compaction": { "temperature": 0.6, "top_p": 0.95 }
+  },
+
+  "provider": {
+    "v100": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "llama.cpp (Tesla V100)",
+
+      "options": {
+        "baseURL": "http://127.0.0.1:8080/v1",
+        "headerTimeout": false,
+        "chunkTimeout": false
+      },
+
+      "models": {
+        "qwen3.6-35b-a3b": {
+          "name": "Qwen3.6 35B-A3B (IQ4_XS, 256K)",
+
+          "tool_call": true,
+          "reasoning": true,
+          "temperature": true,
+
+          "limit": {
+            "context": 262144,
+            "input": 229376,
+            "output": 32768
+          }
+        }
+      }
+    }
+  }
+}
