@@ -33,6 +33,7 @@ What was observed: after switching to `-t 4` (physical cores) and `--n-cpu-moe 1
 
 ```
 qwen-v100-opencode/
+├── Dockerfile                            multi-stage: build llama.cpp + slim runtime
 ├── SETUP.md                              <- this file
 ├── scripts/
 │   ├── 01-install-deps.sh                packages, Hugging Face CLI, OpenCode, CUDA/driver checks
@@ -172,7 +173,35 @@ It also adds `.agent/` to `.git/info/exclude`, so your notes stay out of git. Th
    ```bash
    grep -n "forcing full prompt re-processing" ~/llm-server.log
    ```
-   You want **no matches**, and the second request should process only the few new tokens ("prompt eval" with a small token count). If it reprocesses everything, see troubleshooting.
+    You want **no matches**, and the second request should process only the few new tokens ("prompt eval" with a small token count). If it reprocesses everything, see troubleshooting.
+
+### Step 10: Docker alternative (optional)
+
+Run the entire stack in a container. Requires the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
+
+```bash
+# 1. Download the model on the host (keeps the image small)
+./scripts/03-download-model.sh
+
+# 2. Build the image (~5-10 min, builds llama.cpp from source)
+docker build -t qwen-v100-opencode:latest .
+
+# 3. Run the server
+docker run --rm -it --gpus all -p 8080:8080 \
+  -v ~/models/qwen3.6:/models/qwen3.6:ro \
+  qwen-v100-opencode:latest
+```
+
+The image is multi-stage: the `build` stage compiles llama.cpp with sm_70 kernels; the `runtime` stage is the slim final image with just `llama-server`. The model is mounted read-only so the image stays at ~1 GB instead of ~20 GB. OpenCode still runs on the host (via `opencode` CLI or VS Code extension) and connects to the container over `http://localhost:8080`.
+
+To change tuning flags, append them after the image name (they override the CMD):
+
+```bash
+docker run --rm -it --gpus all -p 8080:8080 \
+  -v ~/models/qwen3.6:/models/qwen3.6:ro \
+  qwen-v100-opencode:latest \
+  --n-cpu-moe 16 -c 131072
+```
 
 ---
 
@@ -261,14 +290,45 @@ Not recommended: the `-MTP` GGUF variants (net loss on 16 GB).
 
 ---
 
-## 8. Maintenance
+## 8. Caveats and what is not verified
+
+- These files were assembled from documentation, issue reports and benchmarks. The scripts were syntax-checked, and `llm-up.sh`, `04-install-opencode-config.sh` and `05-init-project.sh` were dry-run against a stub server and temporary directories. They were **not run on your machine** by the author of this guide, so the build, download and GPU steps are untested here. Treat flag values as a starting point.
+- `--n-cpu-moe 18` and the VRAM and RAM figures in this guide are estimates from file sizes and the model's published architecture.
+- Cache reuse on this hybrid model is a known weak spot in llama.cpp; verify it (step 9.4).
+- The compaction plugin uses an experimental hook, and one user reported it not taking effect on a later version.
+- OpenCode 2 compatibility is unchecked.
+- The `small_model` line uses an OpenCode Zen free model, and **Zen's free model IDs rotate** (sources disagree on the current one). Check the live list, which needs no key:
+    ```bash
+    curl -s https://opencode.ai/zen/v1/models | python3 -m json.tool | grep '"id"' | grep -i free
+    ```
+    Then set `"small_model": "opencode/<id>"` in `~/.config/opencode/opencode.json`. If you delete the line instead, OpenCode falls back to the main model for titles, which uses your single local slot (likely disturbing the cache).
+- Free third-party endpoints may use your prompts for training. Everything else here stays on your machine.
+
+---
+
+## 9. Maintenance
 
 - **Update llama.cpp:** `./scripts/02-build-llama-cpp.sh` (pulls and rebuilds). Re-run step 9 afterwards.
 - **Update the model:** re-run `./scripts/03-download-model.sh`; it fetches the latest files for the quant.
 - **Re-install config:** `./scripts/04-install-opencode-config.sh` is safe to repeat; differing files are backed up first.
 - **Record changes** to the hardware or versions in section 1 so the setup stays reproducible.
 
-## 9. My measurements
+---
+
+## 10. Sources consulted
+
+- Qwen3.6-35B-A3B model card and GGUF sizes: https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF
+- OpenCode docs: https://opencode.ai/docs/ , https://opencode.ai/docs/config/ , https://opencode.ai/docs/rules/
+- OpenCode compaction prompt and prune issues: https://github.com/anomalyco/opencode/issues/16512 , https://github.com/anomalyco/opencode/issues/59321
+- llama.cpp hybrid-model cache re-processing: https://github.com/ggml-org/llama.cpp/issues/22746 , https://github.com/ggml-org/llama.cpp/issues/21831 , https://github.com/ggml-org/llama.cpp/discussions/29885
+- MoE offload tuning: https://gist.github.com/DocShotgun/a02a4c0c0a57e43ff4f038b46ca66ae0 , https://docs.tokios.com/guides/llama-cpp-optimization
+- Tesla V100 + Qwen3.6 + llama.cpp: https://miyagadget.page/en/blog/2026/07/15/tesla-v100-32gb-qwen36-benchmark-en/ , https://github.com/fishlikeX/sm70-attn
+- 16 GB GPU benchmarks: https://www.glukhov.org/llm-performance/benchmarks/best-llm-on-16gb-vram-gpu/ , https://www.glukhov.org/llm-performance/benchmarks/comparing-qwen-3-6-mtp-vs-standard/
+- NVIDIA llama.cpp playbook: https://build.nvidia.com/playbooks/llama-cpp/instructions.md
+
+---
+
+## 11. My measurements
 
 | Item                                | Value                           |
 | ----------------------------------- | ------------------------------- |
