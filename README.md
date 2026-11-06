@@ -287,6 +287,7 @@ Not recommended: the `-MTP` GGUF variants (net loss on 16 GB).
 | `hf: command not found`                              | Open a new shell, or `export PATH="$HOME/.local/bin:$PATH"`.                                                                                                         |
 | Config looks ignored after an upgrade                | Check `opencode --version`. This bundle targets OpenCode 1.                                                                                                          |
 | Compaction summary looks generic                     | The plugin hook is experimental; check that `plugins/better-compaction.ts` is installed and re-test with `/compact`. Rely on `SCRATCH.md` and `/handoff` regardless. |
+| System suspend hangs / OOM kills on suspend          | NVIDIA UVM deadlock in `uvm_suspend()`. Run `sudo systemctl mask nvidia-suspend.service`.                                                                            |
 
 ---
 
