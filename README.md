@@ -271,6 +271,46 @@ Not recommended: the `-MTP` GGUF variants (net loss on 16 GB).
 
 ---
 
+## 6.5. KV cache reuse
+
+By default, every new prompt may re-read part of the history. This is the strongest performance cost. Three causes, ordered by likelihood:
+
+**Cause 1: `preserve_thinking` off (mostly confirmed)**
+
+Without `preserve_thinking`, the chat template strips reasoning from completed turns. The server cache no longer matches on the next prompt, so everything after the last matching token is prefilled again. This is roughly the size of the last agent loop (reasoning, tool calls, tool output).
+
+**Fix (applied by default):** `--chat-template-kwargs '{"preserve_thinking": true}'` is now enabled in `llm-up.sh`. Context grows faster because reasoning stays in history.
+
+**Cause 2: Build vs Plan agents (confirmed difference)**
+
+Different tool definitions between Build and Plan agents mean no prefix match from token 0. The whole context is reprocessed.
+
+**Fix:** Stay in one agent per session. In Build, ask for "analysis only, don't edit".
+
+**Cause 3: Idle effects (unconfirmed)**
+
+Two candidates: paging (memory-mapped expert weights evicted during idle) or slot eviction (stale `small_model` ID causing fallback to local model).
+
+**Diagnose (about 15 minutes):**
+
+Run a session with a few thousand tokens of context. After each test, check:
+
+```bash
+grep -n "prompt eval time" ~/llm-server.log | tail -3
+grep -n "forcing full prompt re-processing" ~/llm-server.log
+```
+
+- **(a)** Send a new prompt right after the last one finished → large token count = cause 1
+- **(b)** Switch to Plan, then send a prompt → large token count = cause 2
+- **(c)** Wait 10 minutes, then send a prompt → small token count but long wait = paging (check `vmstat 1`)
+
+**Additional fixes:**
+
+- **Checkpoints:** `LLM_CHECKPOINTS=16 LLM_CHECKPOINT_STEP=2048 ./llm-up.sh` — ~1 GB RAM for 16 checkpoints. Start here if re-reads still happen.
+- **Lower compaction point:** Use the 128K profile (section 5.2) once you've measured prefill speed. Caps the cost of any full re-read.
+
+---
+
 ## 7. Troubleshooting
 
 | Symptom                                              | Likely cause and fix                                                                                                                                                 |

@@ -17,9 +17,8 @@
 #   LLM_BATCH / LLM_UBATCH   batch sizes          (default: 2048 / 512)
 #   LLM_KV_K / LLM_KV_V  KV-cache types           (default: q8_0 / q8_0)
 # Optional extras (off by default):
-#   LLM_CHECKPOINTS=32          enable prompt-cache checkpoints (flag names are auto-detected per build)
+#   LLM_CHECKPOINTS             enable prompt-cache checkpoints (default: 16, auto-detected flag names)
 #   LLM_CHECKPOINT_STEP=2048    checkpoint spacing in tokens
-#   LLM_PRESERVE_THINKING=1     pass preserve_thinking=true to the chat template (A/B test it)
 #   LLM_REASONING_BUDGET=4096   cap thinking tokens (trade-off: lower quality on hard problems)
 set -Eeuo pipefail
 
@@ -62,6 +61,8 @@ fi
 
 # Optional extras
 EXTRA=()
+# preserve_thinking improves KV cache reuse across turns (Qwen recommendation)
+EXTRA+=(--chat-template-kwargs '{"preserve_thinking": true}')
 if [[ -n "${LLM_CHECKPOINTS:-}" ]]; then
   HELP="$("$SERVER" --help 2>&1 || true)"
   if grep -q -- '--ctx-checkpoints' <<<"$HELP"; then
@@ -72,9 +73,6 @@ if [[ -n "${LLM_CHECKPOINTS:-}" ]]; then
   elif grep -q -- '--checkpoint-every-n-tokens' <<<"$HELP"; then
     EXTRA+=(--checkpoint-every-n-tokens "${LLM_CHECKPOINT_STEP:-1024}")
   fi
-fi
-if [[ "${LLM_PRESERVE_THINKING:-0}" == "1" ]]; then
-  EXTRA+=(--chat-template-kwargs '{"preserve_thinking": true}')
 fi
 if [[ -n "${LLM_REASONING_BUDGET:-}" ]]; then
   EXTRA+=(--reasoning-budget "$LLM_REASONING_BUDGET")

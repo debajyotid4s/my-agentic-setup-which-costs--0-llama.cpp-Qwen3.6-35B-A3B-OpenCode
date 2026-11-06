@@ -59,4 +59,4 @@ RUN mkdir -p /models/qwen3.6
 EXPOSE 8080
 
 ENTRYPOINT ["/usr/local/bin/llama-server"]
-CMD ["-m", "/models/qwen3.6/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf", "--alias", "qwen3.6-35b-a3b", "-ngl", "99", "--n-cpu-moe", "18", "-fit", "off", "-c", "262144", "-np", "1", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-b", "2048", "-ub", "512", "--jinja", "--temp", "0.6", "--top-p", "0.95", "--top-k", "20", "--min-p", "0.0", "--presence-penalty", "0.0", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["-m", "/models/qwen3.6/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf", "--alias", "qwen3.6-35b-a3b", "-ngl", "99", "--n-cpu-moe", "18", "-fit", "off", "-c", "262144", "-np", "1", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-b", "2048", "-ub", "512", "--jinja", "--chat-template-kwargs", "{\"preserve_thinking\": true}", "--temp", "0.6", "--top-p", "0.95", "--top-k", "20", "--min-p", "0.0", "--presence-penalty", "0.0", "--host", "0.0.0.0", "--port", "8080"]
