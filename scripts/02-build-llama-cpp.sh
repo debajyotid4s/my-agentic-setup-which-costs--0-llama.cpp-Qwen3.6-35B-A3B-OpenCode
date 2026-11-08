@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # 02-build-llama-cpp.sh
-# Builds llama.cpp from source for the Tesla V100 (Volta, compute capability 7.0).
-# Prebuilt llama.cpp binaries do not include Volta kernels, so a source build is required.
+# Builds llama.cpp from source for your NVIDIA GPU.
+#
+# Set your GPU's compute capability before running:
+#   RTX 20xx=75, RTX 30xx=86, RTX 40xx=89, V100=70, GTX 10xx=61
+#   CMAKE_CUDA_ARCHITECTURES=86 ./scripts/02-build-llama-cpp.sh
 #
 # Optional environment variables:
 #   LLAMA_DIR   where to clone/build   (default: $HOME/llama.cpp)
 #   LLAMA_REF   tag or commit to pin   (default: current default branch)
+#   CMAKE_CUDA_ARCHITECTURES  GPU arch (default: 70 for V100)
 set -Eeuo pipefail
 
 say()  { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
@@ -14,14 +18,15 @@ die()  { printf '\033[31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 
 LLAMA_DIR="${LLAMA_DIR:-$HOME/llama.cpp}"
 LLAMA_REF="${LLAMA_REF:-}"
+ARCH="${CMAKE_CUDA_ARCHITECTURES:-70}"
 
 NVCC="$(command -v nvcc || true)"
 if [[ -z "$NVCC" && -x /usr/local/cuda/bin/nvcc ]]; then
   NVCC=/usr/local/cuda/bin/nvcc
 fi
-[[ -n "$NVCC" ]] || die "nvcc not found. Install CUDA toolkit 12.x first (SETUP.md, step 1)."
+[[ -n "$NVCC" ]] || die "nvcc not found. Install CUDA toolkit 12.x first (README.md, step 1)."
 CUDA_MAJOR="$("$NVCC" --version | sed -n 's/.*release \([0-9]\+\)\..*/\1/p' | head -n1)"
-[[ "${CUDA_MAJOR:-0}" == "12" ]] || die "CUDA major version is '${CUDA_MAJOR:-unknown}'. The V100 needs 12.x (CUDA 13 dropped Volta)."
+[[ "${CUDA_MAJOR:-0}" == "12" ]] || die "CUDA major version is '${CUDA_MAJOR:-unknown}'. You need CUDA 12.x."
 export CUDACXX="$NVCC"
 
 say "Fetching llama.cpp into $LLAMA_DIR"
@@ -36,10 +41,10 @@ if [[ -n "$LLAMA_REF" ]]; then
 fi
 echo "Building commit: $(git -C "$LLAMA_DIR" rev-parse --short HEAD)"
 
-say "Configuring (CUDA on, architecture 70 = V100)"
+say "Configuring (CUDA on, architecture ${ARCH})"
 cmake -S "$LLAMA_DIR" -B "$LLAMA_DIR/build" \
   -DGGML_CUDA=ON \
-  -DCMAKE_CUDA_ARCHITECTURES=70 \
+  -DCMAKE_CUDA_ARCHITECTURES="$ARCH" \
   -DLLAMA_CURL=ON \
   -DCMAKE_BUILD_TYPE=Release
 
