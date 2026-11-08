@@ -269,18 +269,26 @@ Do NOT Ctrl+C (CUDA cleanup can hang):
 
 ## 8. Docker
 
+Name your container so you can stop it easily:
+
 ```bash
 docker build -t local-llm-opencode:latest .
-docker run --rm -it --gpus all -p 8080:8080 \
+docker run -d --name llm-server --gpus all -p 8080:8080 \
   -v ~/models/qwen3.6:/models/qwen3.6:ro \
   local-llm-opencode:latest
+```
+
+**Shutting down Docker:**
+```bash
+docker stop llm-server    # graceful (SIGTERM → 30s → SIGKILL)
+docker kill llm-server    # immediate
 ```
 
 The image is multi-stage: `build` stage compiles llama.cpp with the CUDA arch from the Dockerfile. The `runtime` stage is slim. Model is mounted read-only.
 
 Override flags by appending:
 ```bash
-docker run --rm -it --gpus all -p 8080:8080 \
+docker run -d --name llm-server --gpus all -p 8080:8080 \
   -v ~/models/qwen3.6:/models/qwen3.6:ro \
   -v ~/llama-cache:/llama-cache \
   local-llm-opencode:latest \

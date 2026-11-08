@@ -111,11 +111,12 @@ Check swap: `LLM_SWAP_CHECK=1 ./scripts/llm-up.sh`
 
 ```bash
 docker build --build-arg CMAKE_CUDA_ARCHITECTURES=75 -t local-llm-opencode:latest .
-docker run --rm -it --gpus all -p 8080:8080 \
+docker run -d --name llm-server --gpus all -p 8080:8080 \
   -v ~/models/qwen3.6:/models/qwen3.6:ro \
-  -v ~/llama-cache:/llama-cache \
   local-llm-opencode:latest
 ```
+
+**Shutting down:** `docker stop llm-server` (graceful) or `docker kill llm-server` (immediate)
 
 Override flags by appending: `--n-cpu-moe 16 -c 131072 --prompt-cache /llama-cache/model-kvcache.bin --prompt-cache-all`
 
