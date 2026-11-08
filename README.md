@@ -258,6 +258,41 @@ Each checkpoint uses some system RAM (roughly 60 MiB each for this model, an est
 
 Not recommended: the `-MTP` GGUF variants (net loss on 16 GB).
 
+### 5.7 Memory safety (prevents OOM reboots)
+
+If your system restarts under load, the kernel OOM killer is hitting. Fix it:
+
+1. **Cap process memory** — `LLM_MAX_MEM=10G ./scripts/llm-up.sh` (uses `systemd-run --scope MemoryMax=`). The server exits cleanly instead of crashing the system. Start low (8G–10G) and raise if it loads but truncates.
+2. **Add swap** — creates a safety net so the OOM killer doesn't fire:
+   ```bash
+   sudo fallocate -l 8G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+   echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+   ```
+3. **Lower `LLM_NCMOE`** — fewer layers in system RAM, more on GPU. Each step down frees ~0.37 GB system RAM. Try `LLM_NCMOE=14` if you have ≤16 GB total RAM.
+4. **Lower `LLM_CTX`** — `LLM_CTX=131072` saves ~1.3 GB VRAM and proportionally less system RAM.
+
+Check swap status: `LLM_SWAP_CHECK=1 ./scripts/llm-up.sh`
+
+### 5.8 Warm start / KV cache persistence
+
+**Cold start after idle (the #1 user complaint):** If every turn after an hour of idle re-reads the whole history:
+
+1. **Idle timeout** — already disabled by default (`--timeout 0`).
+2. **Enable prompt-cache persistence** — saves KV cache to disk, restores on restart (~5-15s cold start vs full re-prefill):
+   ```bash
+   LLM_PROMPT_CACHE=1 LLM_MLOCK=1 ./scripts/llm-up.sh
+   ```
+   Trade-off: ~2-4 GB disk, ~5-15s restore time on cold start instead of instant.
+3. **Stay in one agent per session** — Build vs Plan have different tool defs → no prefix match.
+4. **Run** `grep -n "forcing full prompt re-processing" ~/llm-server.log` — expect no matches.
+5. If still broken: enable checkpoints (`LLM_CHECKPOINTS=16`), or lower compaction point to 128K profile
+
+| Flag | Effect | Trade-off |
+|---|---|---|
+| `LLM_PROMPT_CACHE=1` | Saves KV cache to `~/.llama-cache/`, restores on restart | ~2-4 GB disk, ~5-15s cold start |
+| `LLM_MLOCK=1` | Locks model + cache in RAM, prevents OS page eviction | Uses more system RAM |
+| Both together | Best warm-start: disk persistence + RAM residency | Combined disk + RAM cost |
+
 ---
 
 ## 6. Daily workflow
@@ -268,6 +303,20 @@ Not recommended: the `-MTP` GGUF variants (net loss on 16 GB).
 4. When the context gets heavy, or you are done for the day: run `/handoff`, then `/new`. The new session loads `HANDOFF.md` automatically and reads the tail of `SCRATCH.md` itself, so there is no re-teaching. Run `/handoff` right before `/new`, because rewriting `HANDOFF.md` invalidates the cache anyway.
 5. If you do nothing, auto-compaction triggers near the compaction point in section 5.2. You can also run `/compact` yourself before then.
 6. For long, noisy investigations, ask the agent to keep command output filtered (`tail`, `grep`). Pruning is off, so everything printed stays in context.
+
+### Shutting down
+
+When you're done for the day, do NOT just Ctrl+C (it can hang on CUDA cleanup):
+
+```bash
+./scripts/llm-stop.sh           # graceful (30s timeout, then force-kill)
+./scripts/llm-stop.sh --force   # immediate kill
+```
+
+If the script fails to find the process, fall back to:
+```bash
+kill -SIGTERM $(pgrep -f llama-server) && sleep 5 && kill -0 $(pgrep -f llama-server) && kill -SIGKILL $(pgrep -f llama-server)
+```
 
 ---
 

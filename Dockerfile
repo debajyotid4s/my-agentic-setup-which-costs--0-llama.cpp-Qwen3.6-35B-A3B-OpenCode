@@ -56,7 +56,15 @@ COPY --from=build /usr/local/bin/llama-server /usr/local/bin/llama-server
 # Model lives at /models/qwen3.6 (mounted from host at runtime)
 RUN mkdir -p /models/qwen3.6
 
+# Prompt cache directory (mounted from host for warm-start persistence)
+RUN mkdir -p /llama-cache
+VOLUME ["/llama-cache"]
+
 EXPOSE 8080
 
 ENTRYPOINT ["/usr/local/bin/llama-server"]
-CMD ["-m", "/models/qwen3.6/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf", "--alias", "qwen3.6-35b-a3b", "-ngl", "99", "--n-cpu-moe", "18", "-fit", "off", "-c", "262144", "-np", "1", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-b", "2048", "-ub", "512", "--jinja", "--chat-template-kwargs", "{\"preserve_thinking\": true}", "--temp", "0.6", "--top-p", "0.95", "--top-k", "20", "--min-p", "0.0", "--presence-penalty", "0.0", "--host", "0.0.0.0", "--port", "8080"]
+# Warm-start flags: --timeout 0 disables idle KV cache eviction.
+# For prompt-cache persistence, mount /llama-cache and add:
+#   --prompt-cache /llama-cache/qwen3.6-35b-a3b-kvcache.bin --prompt-cache-all
+# (or run via llm-up.sh with LLM_PROMPT_CACHE=1)
+CMD ["-m", "/models/qwen3.6/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf", "--alias", "qwen3.6-35b-a3b", "-ngl", "99", "--n-cpu-moe", "18", "-fit", "off", "-c", "262144", "-np", "1", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-b", "2048", "-ub", "512", "--jinja", "--chat-template-kwargs", "{\"preserve_thinking\": true}", "--timeout", "0", "--temp", "0.6", "--top-p", "0.95", "--top-k", "20", "--min-p", "0.0", "--presence-penalty", "0.0", "--host", "0.0.0.0", "--port", "8080"]
