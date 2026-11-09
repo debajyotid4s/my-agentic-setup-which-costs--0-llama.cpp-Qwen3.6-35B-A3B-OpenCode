@@ -45,5 +45,36 @@
         }
       }
     }
-  }
+  },
+
+  "permissions": {
+    "rules": [
+      {
+        "match": { "command": "rm", "shell": true },
+        "mode": "ask"
+      },
+      {
+        "match": { "command": "rm -rf", "shell": true },
+        "mode": "deny"
+      },
+      {
+        "match": { "command": "git push", "shell": true },
+        "mode": "ask"
+      },
+      {
+        "match": { "command": "sudo", "shell": true },
+        "mode": "ask"
+      },
+      {
+        "match": { "command": "mkfs", "shell": true },
+        "mode": "deny"
+      },
+      {
+        "match": { "command": "dd if=", "shell": true },
+        "mode": "deny"
+      }
+    ]
+  },
+
+  "_small_model_note": "WARNING: small_model uses a remote free tier. Titles are sent to a third party. If the model ID rotates out, OpenCode may fall back to your single local slot and evict the cache. Consider setting small_model to your local model or disabling it."
 }

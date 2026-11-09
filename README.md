@@ -62,8 +62,7 @@ CMAKE_CUDA_ARCHITECTURES=75 ./scripts/02-build-llama-cpp.sh
 | 16 GB | Qwen3.6-35B-A3B | UD-IQ4_XS | ~17.7 GB |
 | 16 GB | Qwen3.6-35B-A3B | Q8_0 | ~22 GB |
 | 24 GB | Qwen3.6-35B-A3B | Q8_0 | ~22 GB |
-| 24 GB | Mixtral 8x7B | IQ4_XS | ~18 GB |
-| 48 GB+ | Llama 3.1 70B | Q4_K_M | ~38 GB |
+| 48 GB+ | Qwen3.6-35B-A3B | Q8_0 | ~22 GB |
 
 Find GGUF files on HuggingFace: search `<model-name>-GGUF`. Popular repos: `bartowski/`, `QuantFactory/`, `unsloth/`.
 
@@ -82,10 +81,21 @@ Find GGUF files on HuggingFace: search `<model-name>-GGUF`. Popular repos: `bart
 ### Step 1: Prerequisites
 
 1. **NVIDIA driver** — check: `nvidia-smi` shows your GPU.
-2. **CUDA toolkit 12.x** — check: `nvcc --version` says `release 12.x`. If not found:
-   ```bash
-   echo 'export PATH=/usr/local/cuda/bin:$PATH' >> ~/.bashrc && source ~/.bashrc
-   ```
+2. **CUDA toolkit** — check: `nvcc --version` shows a compatible version:
+
+   | Your GPU (compute capability) | Recommended CUDA |
+   |---|---|
+   | Tesla V100 / Quadro RTX 4000/5000/6000 (Volta, sm_70) | **CUDA 12.x** (some CUDA 13 builds dropped Volta support) |
+   | RTX 20xx / T4 (Turing, sm_75) | CUDA 12.x or 13.x |
+   | RTX 30xx / A100 (Ampere, sm_80/86) | CUDA 12.x or 13.x |
+   | RTX 40xx (Ada, sm_89) | CUDA 12.x or 13.x |
+   | H100 (Hopper, sm_90) | CUDA 12.x or 13.x |
+   | GTX 10xx (Pascal, sm_61) | CUDA 12.x only |
+
+   If not found:
+    ```bash
+    echo 'export PATH=/usr/local/cuda/bin:$PATH' >> ~/.bashrc && source ~/.bashrc
+    ```
 3. **Disk:** 25–50 GB free (model + llama.cpp build).
 4. **OS:** Debian/Ubuntu assumed (scripts use `apt`). Adjust for your distro.
 
@@ -161,9 +171,9 @@ All tunables are environment variables on `llm-up.sh`.
 
 ### `LLM_NCMOE`: layers in system RAM (hybrid models only)
 
-For MoE models (Qwen3.6, Mixtral), `--n-cpu-moe` keeps some layers' experts in system RAM:
+For MoE models (Qwen3.6), `--n-cpu-moe` keeps some layers' experts in system RAM:
 
-1. Start at **18** (default).
+1. Start at **18** (default). This fits ~3.9 GB headroom for KV cache on a V100 16 GB.
 2. Watch VRAM: `watch -n1 nvidia-smi --query-gpu=memory.used --format=csv`
 3. Step **down** by 2 (16, 14, 12...). Each step moves ~0.37 GB experts onto GPU.
 4. Stop at **~1–2 GB VRAM spare**. If it fails to load, go back up.
@@ -213,19 +223,21 @@ Check swap: `LLM_SWAP_CHECK=1 ./scripts/llm-up.sh`
 
 **Cold start after idle:** If every turn after an hour of idle re-reads the whole history:
 
-1. **Idle timeout** — disabled by default (`--timeout 0`).
+1. **Idle timeout** — disabled by default (`--timeout 0`, sets the server read/write timeout to unlimited).
 2. **Enable prompt-cache persistence** — saves KV cache to disk, restores on restart (~5–15s cold start vs full re-prefill):
-   ```bash
-   LLM_PROMPT_CACHE=1 LLM_MLOCK=1 ./scripts/llm-up.sh
-   ```
-   Trade-off: ~2–4 GB disk, ~5–15s restore time.
-3. **Stay in one agent per session** — Build vs Plan have different tool defs → no prefix match.
-4. **Verify:** `grep -n "forcing full prompt re-processing" ~/llm-server.log` — expect no matches.
+    ```bash
+    LLM_PROMPT_CACHE=1 ./scripts/llm-up.sh
+    ```
+    > **Note:** `--prompt-cache` and `--prompt-cache-all` may not be supported by your `llama-server` build (they belong to `llama-cli`). The script validates the flag at startup and warns if unsupported. Run `llama-server --help | grep -i prompt-cache` to check your build.
+3. **Lock in RAM** — `LLM_MLOCK=1` keeps model weights and KV cache in RAM, preventing OS page eviction:
+    > **WARNING:** Do NOT use `LLM_MLOCK=1` with `LLM_MAX_MEM` set. The model (~17.7 GB) exceeds typical caps (8G–12G) and your RAM, triggering OOM. Disable the cap first: `LLM_MAX_MEM= LLM_MLOCK=1 ./scripts/llm-up.sh`.
+4. **Stay in one agent per session** — Build vs Plan have different tool defs → no prefix match.
+5. **Verify:** `grep -n "forcing full prompt re-processing" ~/llm-server.log` — expect no matches.
 
 | Flag | Effect | Trade-off |
 |---|---|---|
 | `LLM_PROMPT_CACHE=1` | Saves KV cache to `~/.llama-cache/` | ~2–4 GB disk, ~5–15s cold start |
-| `LLM_MLOCK=1` | Locks model + cache in RAM | Uses more system RAM |
+| `LLM_MLOCK=1` | Locks model + cache in RAM | Uses more system RAM, **dangerous with MemoryMax cap** |
 | Both | Best warm-start: disk + RAM | Combined cost |
 
 ---
@@ -273,7 +285,7 @@ Name your container so you can stop it easily:
 
 ```bash
 docker build -t local-llm-opencode:latest .
-docker run -d --name llm-server --gpus all -p 8080:8080 \
+docker run -d --name llm-server --gpus all -p 127.0.0.1:8080:8080 \
   -v ~/models/qwen3.6:/models/qwen3.6:ro \
   local-llm-opencode:latest
 ```
@@ -288,7 +300,7 @@ The image is multi-stage: `build` stage compiles llama.cpp with the CUDA arch fr
 
 Override flags by appending:
 ```bash
-docker run -d --name llm-server --gpus all -p 8080:8080 \
+docker run -d --name llm-server --gpus all -p 127.0.0.1:8080:8080 \
   -v ~/models/qwen3.6:/models/qwen3.6:ro \
   -v ~/llama-cache:/llama-cache \
   local-llm-opencode:latest \

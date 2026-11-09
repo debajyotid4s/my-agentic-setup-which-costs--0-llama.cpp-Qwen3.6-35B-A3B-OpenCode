@@ -34,14 +34,14 @@ HOST="${LLM_HOST:-127.0.0.1}"
 PORT="${LLM_PORT:-8080}"
 
 CTX="${LLM_CTX:-262144}"
-NCMOE="${LLM_NCMOE:-14}"
+NCMOE="${LLM_NCMOE:-18}"
 BATCH="${LLM_BATCH:-2048}"
 UBATCH="${LLM_UBATCH:-512}"
 KV_K="${LLM_KV_K:-q8_0}"
 KV_V="${LLM_KV_V:-q8_0}"
 
 # Memory cap — prevents OOM reboots. Override with LLM_MAX_MEM=14G for more headroom.
-LLM_MAX_MEM="${LLM_MAX_MEM:-12G}"
+LLM_MAX_MEM="${LLM_MAX_MEM-12G}"
 
 # Threads: physical cores for decode (-t), all logical CPUs for batch/prefill (-tb).
 LOGICAL="$(nproc --all)"
@@ -70,94 +70,34 @@ if [[ "${LLM_SWAP_CHECK:-0}" == "1" ]]; then
   fi
 fi
 
-if [[ -n "${LLM_MAX_MEM:-}" ]]; then
-  # Parse human-readable memory size to bytes (e.g. "12G" -> 12884901888)
-  mem_str="$LLM_MAX_MEM"
-  mem_val=""
-  mem_unit="G"
-  if [[ "$mem_str" =~ ^([0-9]+)[Gg]$ ]]; then
-    mem_val="${BASH_REMATCH[1]}"
-    mem_bytes=$(( mem_val * 1073741824 ))
-  elif [[ "$mem_str" =~ ^([0-9]+)[Mm]$ ]]; then
-    mem_val="${BASH_REMATCH[1]}"
-    mem_bytes=$(( mem_val * 1048576 ))
-    mem_unit="M"
-  else
-    echo "WARN: unrecognized LLM_MAX_MEM='$mem_str', expecting e.g. 8G or 12G"
-    mem_bytes=""
-  fi
-
-  if [[ -n "$mem_bytes" ]]; then
-    echo "Memory cap: ${mem_val}${mem_unit} (via systemd-run --scope MemoryMax=)"
-
-    # Use systemd-run to create a transient scope with MemoryMax.
-    # This is the most reliable way to cap all threads of a process tree.
-    if command -v systemd-run >/dev/null 2>&1; then
-      exec systemd-run --scope --unit=llama-server \
-        -p "MemoryMax=${mem_bytes}" \
-        -p "MemoryHigh=$(( mem_bytes * 80 / 100 ))" \
-        "$SERVER" \
-        -m "$MODEL" \
-        --alias qwen3.6-35b-a3b \
-        -ngl 99 \
-        --n-cpu-moe "$NCMOE" \
-        -fit off \
-        -c "$CTX" \
-        -np 1 \
-        -fa on \
-        -ctk "$KV_K" \
-        -ctv "$KV_V" \
-        -b "$BATCH" \
-        -ub "$UBATCH" \
-        --jinja \
-        --temp 0.6 \
-        --top-p 0.95 \
-        --top-k 20 \
-        --min-p 0.0 \
-        --presence-penalty 0.0 \
-        -t "$THREADS" \
-        -tb "$THREADS_BATCH" \
-        "${EXTRA[@]+"${EXTRA[@]}"}" \
-        --host "$HOST" \
-        --port "$PORT"
-    else
-      echo "WARN: systemd-run not found. Cannot apply memory cap."
-      echo "     Install systemd or set LLM_MAX_MEM= to start without capping."
-      exit 1
-    fi
-  fi
-fi
-
-# Verify required files
-if [[ ! -x "$SERVER" ]]; then
-  echo "ERROR: llama-server executable not found: $SERVER" >&2
-  echo "       Run scripts/02-build-llama-cpp.sh first." >&2
-  exit 1
-fi
-if [[ ! -f "$MODEL" ]]; then
-  echo "ERROR: Model file not found: $MODEL" >&2
-  echo "       Run scripts/03-download-model.sh, or set LLM_MODEL=/path/to/file.gguf" >&2
-  exit 1
-fi
-
-# Optional extras
+# ── Optional extras (built BEFORE launcher selection so flags reach the server) ──
 EXTRA=()
-# disable idle timeout — prevents KV cache eviction after 5 min of inactivity
+# disable idle timeout — prevents KV cache eviction after inactivity
 EXTRA+=(--timeout 0)
 # preserve_thinking improves KV cache reuse across turns (Qwen recommendation)
 EXTRA+=(--chat-template-kwargs '{"preserve_thinking": true}')
 # prompt-cache persistence — saves/restores KV cache to disk to avoid full re-prefill after idle
-# trade-off: ~2-4 GB disk usage, ~5-15s cold start restore after long idle
 if [[ -n "${LLM_PROMPT_CACHE:-}" ]]; then
-  CACHE_DIR="$HOME/.llama-cache"
-  mkdir -p "$CACHE_DIR"
-  CACHE_FILE="$CACHE_DIR/qwen3.6-35b-a3b-kvcache.bin"
-  EXTRA+=(--prompt-cache "$CACHE_FILE" --prompt-cache-all)
-  echo "Prompt cache: $CACHE_FILE (saves KV cache between restarts)"
+  # Validate that this llama-server build supports --prompt-cache (some builds only have it in llama-cli)
+  HELP="$("$SERVER" --help 2>&1 || true)"
+  if ! grep -q -- '--prompt-cache' <<<"$HELP"; then
+    echo "WARN: this llama-server build does not support --prompt-cache (may be in llama-cli only)." >&2
+    echo "      Set LLM_PROMPT_CACHE= to disable." >&2
+  else
+    CACHE_DIR="$HOME/.llama-cache"
+    mkdir -p "$CACHE_DIR"
+    CACHE_FILE="$CACHE_DIR/qwen3.6-35b-a3b-kvcache.bin"
+    EXTRA+=(--prompt-cache "$CACHE_FILE" --prompt-cache-all)
+    echo "Prompt cache: $CACHE_FILE (saves KV cache between restarts)"
+  fi
 fi
 # mlock — keeps model weights and KV cache in RAM, prevents OS from swapping them out
-# trade-off: uses more system RAM, but prevents page-cache eviction during idle
+# WARNING: with MemoryMax cap, mlock can exceed the cap and trigger OOM. Do NOT enable with LLM_MAX_MEM set.
 if [[ -n "${LLM_MLOCK:-}" ]]; then
+  if [[ -n "${LLM_MAX_MEM:-}" ]]; then
+    echo "WARN: LLM_MLOCK=1 with LLM_MAX_MEM=${LLM_MAX_MEM} is dangerous — model (~17.7 GB) exceeds the cap, will OOM." >&2
+    echo "      Disable LLM_MAX_MEM (set LLM_MAX_MEM=) before using LLM_MLOCK=1." >&2
+  fi
   EXTRA+=(--mlock)
   echo "mlock: enabled (keeps cache in RAM)"
 fi
@@ -176,6 +116,42 @@ if [[ -n "${LLM_REASONING_BUDGET:-}" ]]; then
   EXTRA+=(--reasoning-budget "$LLM_REASONING_BUDGET")
 fi
 
+# ── Verify required files ─────────────────────────────────────────────────────
+if [[ ! -x "$SERVER" ]]; then
+  echo "ERROR: llama-server executable not found: $SERVER" >&2
+  echo "       Run scripts/02-build-llama-cpp.sh first." >&2
+  exit 1
+fi
+if [[ ! -f "$MODEL" ]]; then
+  echo "ERROR: Model file not found: $MODEL" >&2
+  echo "       Run scripts/03-download-model.sh, or set LLM_MODEL=/path/to/file.gguf" >&2
+  exit 1
+fi
+
+# ── Memory cap: build optional systemd-run prefix ─────────────────────────────
+LAUNCH=()
+if [[ -n "${LLM_MAX_MEM:-}" ]]; then
+  mem_str="$LLM_MAX_MEM"
+  mem_val=""
+  mem_unit="G"
+  if [[ "$mem_str" =~ ^([0-9]+)[Gg]$ ]]; then
+    mem_val="${BASH_REMATCH[1]}"
+    mem_bytes=$(( mem_val * 1073741824 ))
+  elif [[ "$mem_str" =~ ^([0-9]+)[Mm]$ ]]; then
+    mem_val="${BASH_REMATCH[1]}"
+    mem_bytes=$(( mem_val * 1048576 ))
+    mem_unit="M"
+  else
+    echo "WARN: unrecognized LLM_MAX_MEM='$mem_str' (use e.g. 12G); starting without a cap" >&2
+    mem_bytes=""
+  fi
+  if [[ -n "$mem_bytes" ]]; then
+    command -v systemd-run >/dev/null 2>&1 || { echo "ERROR: systemd-run not found; set LLM_MAX_MEM= to start without a cap." >&2; exit 1; }
+    echo "Memory cap: ${mem_val}${mem_unit} (MemoryMax), MemoryHigh at 90%"
+    LAUNCH=(systemd-run --scope --unit=llama-server -p "MemoryMax=${mem_bytes}" -p "MemoryHigh=$(( mem_bytes * 90 / 100 ))")
+  fi
+fi
+
 echo "Starting Qwen3.6-35B-A3B..."
 echo "Model:    $MODEL"
 echo "Context:  $CTX tokens | KV cache: K=$KV_K V=$KV_V"
@@ -185,7 +161,7 @@ echo "Batch:    $BATCH | Micro-batch: $UBATCH"
 echo "Extras:   ${EXTRA[*]:-none}"
 echo "Server:   http://$HOST:$PORT"
 
-exec "$SERVER" \
+exec "${LAUNCH[@]+"${LAUNCH[@]}"}" "$SERVER" \
   -m "$MODEL" \
   --alias qwen3.6-35b-a3b \
   -ngl 99 \

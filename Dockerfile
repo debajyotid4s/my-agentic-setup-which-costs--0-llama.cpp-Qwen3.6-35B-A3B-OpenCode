@@ -4,7 +4,7 @@
 #   docker build -t local-llm-opencode:latest .
 #
 # Run (requires NVIDIA Container Toolkit):
-#   docker run --rm -it --gpus all -p 8080:8080 \
+#   docker run --rm -it --gpus all -p 127.0.0.1:8080:8080 \
 #     -v ~/models/qwen3.6:/models/qwen3.6:ro \
 #     local-llm-opencode:latest
 #
@@ -12,7 +12,7 @@
 #   docker build --build-arg CMAKE_CUDA_ARCHITECTURES=86 -t local-llm-opencode:latest .
 #
 # Override server flags by appending to docker run:
-#   docker run --rm -it --gpus all -p 8080:8080 \
+#   docker run --rm -it --gpus all -p 127.0.0.1:8080:8080 \
 #     -v ~/models/qwen3.6:/models/qwen3.6:ro \
 #     local-llm-opencode:latest \
 #     --n-cpu-moe 16 -c 131072
@@ -22,6 +22,7 @@
 
 ARG BASE=nvidia/cuda:12.9.0-devel-ubuntu24.04
 ARG RUNTIME=nvidia/cuda:12.9.0-runtime-ubuntu24.04
+ARG LLAMA_REF=v9061
 ARG CMAKE_CUDA_ARCHITECTURES=70
 
 # ── Build stage ──────────────────────────────────────────────────────────────
@@ -33,8 +34,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 python3-pip pciutils \
     && rm -rf /var/lib/apt/lists/*
 
-# Build llama.cpp for the specified CUDA architecture
-RUN git clone --depth 1 https://github.com/ggml-org/llama.cpp /llama.cpp
+# Build llama.cpp for the specified CUDA architecture, pinned to LLAMA_REF
+RUN git clone --depth 1 --single-branch --branch ${LLAMA_REF} https://github.com/ggml-org/llama.cpp /llama.cpp
 RUN cd /llama.cpp && \
     cmake -S . -B build \
       -DGGML_CUDA=ON \
@@ -64,11 +65,11 @@ RUN mkdir -p /models/qwen3.6
 RUN mkdir -p /llama-cache
 VOLUME ["/llama-cache"]
 
-EXPOSE 8080
+EXPOSE 127.0.0.1:8080
 
 ENTRYPOINT ["/usr/local/bin/llama-server"]
 # Warm-start flags: --timeout 0 disables idle KV cache eviction.
 # For prompt-cache persistence, mount /llama-cache and add:
 #   --prompt-cache /llama-cache/qwen3.6-35b-a3b-kvcache.bin --prompt-cache-all
 # (or run via llm-up.sh with LLM_PROMPT_CACHE=1)
-CMD ["-m", "/models/qwen3.6/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf", "--alias", "qwen3.6-35b-a3b", "-ngl", "99", "--n-cpu-moe", "18", "-fit", "off", "-c", "262144", "-np", "1", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-b", "2048", "-ub", "512", "--jinja", "--chat-template-kwargs", "{\"preserve_thinking\": true}", "--timeout", "0", "--temp", "0.6", "--top-p", "0.95", "--top-k", "20", "--min-p", "0.0", "--presence-penalty", "0.0", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["-m", "/models/qwen3.6/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf", "--alias", "qwen3.6-35b-a3b", "-ngl", "99", "--n-cpu-moe", "18", "-fit", "off", "-c", "262144", "-np", "1", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-b", "2048", "-ub", "512", "--jinja", "--chat-template-kwargs", "{\"preserve_thinking\": true}", "--timeout", "0", "--temp", "0.6", "--top-p", "0.95", "--top-k", "20", "--min-p", "0.0", "--presence-penalty", "0.0", "--host", "127.0.0.1", "--port", "8080"]
