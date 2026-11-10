@@ -43,6 +43,9 @@ KV_V="${LLM_KV_V:-q8_0}"
 # Memory cap — prevents OOM reboots. Override with LLM_MAX_MEM=14G for more headroom.
 LLM_MAX_MEM="${LLM_MAX_MEM-12G}"
 
+# Log file — set LLM_LOG_FILE to enable logging (default: ~/llm-server.log)
+LLM_LOG_FILE="${LLM_LOG_FILE:-$HOME/llm-server.log}"
+
 # Threads: physical cores for decode (-t), all logical CPUs for batch/prefill (-tb).
 LOGICAL="$(nproc --all)"
 PHYS="$(lscpu -p=CORE,SOCKET 2>/dev/null | grep -v '^#' | sort -u | wc -l || true)"
@@ -161,27 +164,38 @@ echo "Batch:    $BATCH | Micro-batch: $UBATCH"
 echo "Extras:   ${EXTRA[*]:-none}"
 echo "Server:   http://$HOST:$PORT"
 
-exec "${LAUNCH[@]+"${LAUNCH[@]}"}" "$SERVER" \
-  -m "$MODEL" \
-  --alias qwen3.6-35b-a3b \
-  -ngl 99 \
-  --n-cpu-moe "$NCMOE" \
-  -fit off \
-  -c "$CTX" \
-  -np 1 \
-  -fa on \
-  -ctk "$KV_K" \
-  -ctv "$KV_V" \
-  -b "$BATCH" \
-  -ub "$UBATCH" \
-  --jinja \
-  --temp 0.6 \
-  --top-p 0.95 \
-  --top-k 20 \
-  --min-p 0.0 \
-  --presence-penalty 0.0 \
-  -t "$THREADS" \
-  -tb "$THREADS_BATCH" \
-  "${EXTRA[@]+"${EXTRA[@]}"}" \
-  --host "$HOST" \
-  --port "$PORT"
+# Run server with optional logging
+run_server() {
+  # shellcheck disable=SC2086
+  "${LAUNCH[@]+"${LAUNCH[@]}"}" "$SERVER" \
+    -m "$MODEL" \
+    --alias qwen3.6-35b-a3b \
+    -ngl 99 \
+    --n-cpu-moe "$NCMOE" \
+    -fit off \
+    -c "$CTX" \
+    -np 1 \
+    -fa on \
+    -ctk "$KV_K" \
+    -ctv "$KV_V" \
+    -b "$BATCH" \
+    -ub "$UBATCH" \
+    --jinja \
+    --temp 0.6 \
+    --top-p 0.95 \
+    --top-k 20 \
+    --min-p 0.0 \
+    --presence-penalty 0.0 \
+    -t "$THREADS" \
+    -tb "$THREADS_BATCH" \
+    "${EXTRA[@]+"${EXTRA[@]}"}" \
+    --host "$HOST" \
+    --port "$PORT"
+}
+
+if [[ -n "${LLM_LOG_FILE:-}" ]]; then
+  echo "Logging to $LLM_LOG_FILE"
+  run_server 2>&1 | tee -a "$LLM_LOG_FILE"
+else
+  run_server
+fi

@@ -187,8 +187,8 @@ Bigger context = more VRAM for KV cache, slower but longer conversations.
 
 | Profile | Server | OpenCode limit | Approx. token capacity |
 |---|---|---|---|
-| Default | `LLM_CTX=262144` | context 262144, input 229376, reserved 49152 | ~180K |
-| Faster | `LLM_CTX=131072` | context 131072, input 114688, reserved 24576 | ~90K |
+| Default | `LLM_CTX=262144` | context 262144, input 229376, reserved 98304 | ~130K |
+| Faster | `LLM_CTX=131072` | context 131072, input 114688, reserved 49152 | ~90K |
 
 The 128K profile saves ~1.3 GB VRAM. Never set OpenCode's limits above the server's `LLM_CTX`.
 
@@ -219,7 +219,51 @@ Check swap: `LLM_SWAP_CHECK=1 ./scripts/llm-up.sh`
 
 ---
 
-## 5. Warm start / KV cache persistence
+## 4b. Context overflow prevention
+
+"Bad Request" errors are usually caused by the prompt exceeding the context limit. This setup uses a layered approach:
+
+1. **Compaction reserved space** — `opencode.json` sets `reserved: 98304` (96K tokens). Compaction triggers before the prompt gets too large. The amortized cost is ~3.37s per 1K tokens of work (+5% vs no reserve).
+
+2. **File size limits** — The agent rules (in `~/.config/opencode/AGENTS.md`) prevent dumping large files (>2 KB / 100 lines) into context. Always use `grep`, `head`, or `wc` first.
+
+3. **Reasoning budget** — Set `LLM_REASONING_BUDGET=8192` (or 16384) to prevent thinking tokens from eating the 32K output cap and cutting tool-call JSON mid-way.
+
+4. **Always keep a server log** — See Section 5. The log captures the exact 400 error body on the next incident.
+
+Recovery on "Bad Request":
+- Check `~/llm-server.log` for the error reason
+- `/undo` the last turn (removes damaged history)
+- `/compact` (forces context reduction)
+- `/handoff` then `/new` (fresh session if needed)
+
+## 5. Server logging
+
+The server logs to stdout/stderr. To capture them:
+
+```bash
+./scripts/llm-up.sh 2>&1 | tee -a ~/llm-server.log
+```
+
+Or set `LLM_LOG_FILE` in the script (defaults to `~/llm-server.log`):
+```bash
+LLM_LOG_FILE=~/llm-server.log ./scripts/llm-up.sh
+```
+
+On "Bad Request", check the log:
+```bash
+grep -nE " 400$|exceed|n_prompt_tokens|prefill|Jinja|parse|error" ~/llm-server.log | tail -20
+```
+
+| Log message | Cause | Fix |
+|---|---|---|
+| `exceeds the available context size` | Context overflow | `/compact` or `/new` |
+| `prefill is incompatible with enable_thinking` | OpenCode bug | `/new` (fresh session) |
+| `Jinja` or `parse` errors | Damaged history | `/undo` the last turn, then `/compact` |
+
+---
+
+## 6. Warm start / KV cache persistence
 
 **Cold start after idle:** If every turn after an hour of idle re-reads the whole history:
 
@@ -242,9 +286,9 @@ Check swap: `LLM_SWAP_CHECK=1 ./scripts/llm-up.sh`
 
 ---
 
-## 6. Daily workflow
+## 7. Daily workflow
 
-1. Terminal A: `./scripts/llm-up.sh 2>&1 | tee -a ~/llm-server.log`
+1. Terminal A: `./scripts/llm-up.sh` (logs auto-save to `~/llm-server.log` if `LLM_LOG_FILE` is set)
 2. VS Code terminal: `opencode`
 3. Work. The agent appends milestones to `.agent/SCRATCH.md`.
 4. When done: run `/handoff`, then `/new`. New session loads `HANDOFF.md` automatically.
@@ -261,7 +305,7 @@ Do NOT Ctrl+C (CUDA cleanup can hang):
 
 ---
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 | Symptom | Fix |
 |---|---|
@@ -276,10 +320,11 @@ Do NOT Ctrl+C (CUDA cleanup can hang):
 | `hf: command not found` | `export PATH="$HOME/.local/bin:$PATH"`. |
 | Config looks ignored | Check `opencode --version`. This bundle targets OpenCode 1. |
 | System suspend hangs | NVIDIA UVM deadlock. `sudo systemctl mask nvidia-suspend.service`. |
+| "Bad Request" / "go on" repeats | Context overflow or damaged history. Check `~/llm-server.log`. Do NOT send "go on" — same history = same error. Use `/undo`, then `/compact`, then `/new`. |
 
 ---
 
-## 8. Docker
+## 9. Docker
 
 Name your container so you can stop it easily:
 
@@ -315,7 +360,7 @@ docker build --build-arg CMAKE_CUDA_ARCHITECTURES=86 -t local-llm-opencode:lates
 
 ---
 
-## 9. Memory system (per-project)
+## 10. Memory system (per-project)
 
 - `.agent/HANDOFF.md` — long-term memory, auto-loaded. **Rewrite, never append.** Max 60 lines.
 - `.agent/SCRATCH.md` — working journal, NOT auto-loaded. Append-only. Read with `tail -n 40`.
