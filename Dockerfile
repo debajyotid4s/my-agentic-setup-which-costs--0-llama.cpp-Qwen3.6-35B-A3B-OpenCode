@@ -4,12 +4,18 @@
 #   docker build -t local-llm-opencode:latest .
 #
 # Run (requires NVIDIA Container Toolkit):
+#   # For Qwen3.6-35B-A3B:
 #   docker run --rm -it --gpus all -p 127.0.0.1:8080:8080 \
 #     -v ~/models/qwen3.6:/models/qwen3.6:ro \
 #     local-llm-opencode:latest
 #
+#   # For Ornith-1.5-35B-A3B:
+#   docker run --rm -it --gpus all -p 127.0.0.1:8080:8080 \
+#     -v ~/models/ornith1.5:/models/ornith1.5:ro \
+#     local-llm-opencode:latest
+#
 # For your GPU arch, rebuild with the correct arch:
-#   docker build --build-arg CMAKE_CUDA_ARCHITECTURES=86 -t local-llm-opencode:latest .
+#   docker build --build-arg CMAKE_CUDA_ARCHITECTURES=70 -t local-llm-opencode:latest .
 #
 # Override server flags by appending to docker run:
 #   docker run --rm -it --gpus all -p 127.0.0.1:8080:8080 \
@@ -58,8 +64,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=build /usr/local/bin/llama-server /usr/local/bin/llama-server
 
-# Model lives at /models/qwen3.6 (mounted from host at runtime)
-RUN mkdir -p /models/qwen3.6
+# Model directories (mounted from host at runtime)
+# Qwen3.6-35B-A3B: ~/models/qwen3.6/
+# Ornith-1.5-35B-A3B: ~/models/ornith1.5/
+RUN mkdir -p /models/qwen3.6 /models/ornith1.5
 
 # Prompt cache directory (mounted from host for warm-start persistence)
 RUN mkdir -p /llama-cache
@@ -68,8 +76,11 @@ VOLUME ["/llama-cache"]
 EXPOSE 127.0.0.1:8080
 
 ENTRYPOINT ["/usr/local/bin/llama-server"]
+
+# Default: Qwen3.6-35B-A3B (UD-IQ4_XS)
+# Override by appending different flags to docker run, e.g.:
+#   --n-cpu-moe 9 -ctv q4_0  (for Ornith-1.5-35B-A3B with IQ3_XS)
 # Warm-start flags: --timeout 0 disables idle KV cache eviction.
 # For prompt-cache persistence, mount /llama-cache and add:
 #   --prompt-cache /llama-cache/qwen3.6-35b-a3b-kvcache.bin --prompt-cache-all
-# (or run via llm-up.sh with LLM_PROMPT_CACHE=1)
-CMD ["-m", "/models/qwen3.6/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf", "--alias", "qwen3.6-35b-a3b", "-ngl", "99", "--n-cpu-moe", "18", "-fit", "off", "-c", "262144", "-np", "1", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-b", "2048", "-ub", "512", "--jinja", "--chat-template-kwargs", "{\"preserve_thinking\": true}", "--timeout", "0", "--temp", "0.6", "--top-p", "0.95", "--top-k", "20", "--min-p", "0.0", "--presence-penalty", "0.0", "--host", "127.0.0.1", "--port", "8080"]
+CMD ["-m", "/models/qwen3.6/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf", "--alias", "qwen3.6-35b-a3b", "-ngl", "99", "--n-cpu-moe", "18", "-fit", "off", "-c", "262144", "-np", "1", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-b", "2048", "-ub", "512", "--jinja", "--chat-template-kwargs", "{\"preserve_thinking\": true}", "--timeout", "0", "--temp", "0.6", "--top-p", "0.95", "--top-k", "20", "--min-p", "0.0", "--presence-penalty", "0.5", "--reasoning-budget", "4096", "--reasoning-budget-message", "Reasoning budget reached. Stop analysing; run one concrete command or test for your leading hypothesis, then continue.", "--host", "127.0.0.1", "--port", "8080"]
