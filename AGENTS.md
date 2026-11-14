@@ -16,11 +16,11 @@ The global OpenCode config (`opencode.json`, `AGENTS.md`, `/handoff` command, co
 03-download-model.sh    → downloads a GGUF model (set MODEL_REPO / MODEL_QUANT)
 04-install-opencode-config.sh  → deploys global config to ~/.config/opencode/
 05-init-project.sh /path/to/project  → creates .agent/HANDOFF.md, SCRATCH.md, opencode.json
-llm-up.sh               → starts llama-server (run in a dedicated terminal)
-llm-stop.sh             → graceful shutdown (SIGTERM → wait 30s → SIGKILL)
+scripts/<model>/llm-up.sh  → starts llama-server (run in a dedicated terminal)
+scripts/<model>/llm-stop.sh → graceful shutdown (SIGTERM → wait 30s → SIGKILL)
 ```
 
-Override any tunable per-run: `LLM_NCMOE=16 ./scripts/llm-up.sh`
+Override any tunable per-run: `LLM_NCMOE=16 ./scripts/ornith-1.5-35b-a3b/llm-up.sh`
 
 ## Pick your hardware
 
@@ -33,21 +33,22 @@ Override any tunable per-run: `LLM_NCMOE=16 ./scripts/llm-up.sh`
 ## Critical constraints
 
 - **CUDA 12.x** — check `nvcc --version`. CUDA 13 may drop support for older GPUs.
-- **OpenCode 1** — this bundle targets OpenCode 1 config. `opencode --version` will tell you.
+- **OpenCode 2** — this bundle targets the V2 config and plugin API. `opencode --version` will tell you.
 - **One inference slot** (`-np 1`) — all VRAM reserved for one long session.
-- **`prune: false`** in `compaction` — pruning edits old tool output, invalidating the prompt cache.
+- **`compaction.auto: false`** — the `deferred-compaction` plugin requests compaction at a safe point. Background compaction stays off because there is one slot.
 
 ## Key files
 
 | Path | Purpose |
 |---|---|
-| `config/opencode.json` | Global provider config: llama.cpp provider, compaction (auto, no prune), agent temps |
+| `config/opencode.json` | Global V2 config: llama.cpp provider, deferred compaction, permissions |
 | `config/AGENTS.global.md` | Global working rules — installed as `~/.config/opencode/AGENTS.md` |
 | `config/commands/handoff.md` | The `/handoff` command definition |
-| `config/plugins/better-compaction.ts` | Custom compaction prompt (experimental hook) |
+| `config/plugins/deferred-compaction/` | V2 safe-point compaction controller |
 | `config/project-templates/` | Copied into projects by `05-init-project.sh` |
-| `scripts/llm-up.sh` | Server launcher — all tunables are env vars |
-| `scripts/llm-stop.sh` | Graceful shutdown |
+| `scripts/qwen3.6-35b-a3b/llm-up.sh` | Qwen server launcher — all tunables are env vars |
+| `scripts/ornith-1.5-35b-a3b/llm-up.sh` | Ornith server launcher — all tunables are env vars |
+| `scripts/*/llm-stop.sh` | Graceful shutdown |
 | `Dockerfile` | Multi-stage: build llama.cpp + slim runtime. Model mounted read-only from host |
 
 ## Tuning knobs (env vars on `llm-up.sh`)
@@ -76,8 +77,8 @@ Daily flow: work → `/handoff` → `/new`.
 Do NOT Ctrl+C (CUDA cleanup can hang):
 
 ```bash
-./scripts/llm-stop.sh           # graceful (30s timeout, then SIGKILL)
-./scripts/llm-stop.sh --force   # immediate kill
+./scripts/<model>/llm-stop.sh           # graceful (30s timeout, then SIGKILL)
+./scripts/<model>/llm-stop.sh --force   # immediate kill
 ```
 
 ## Warm start (KV cache persistence)
@@ -85,7 +86,7 @@ Do NOT Ctrl+C (CUDA cleanup can hang):
 After idle, if every turn re-reads the whole history:
 
 ```bash
-LLM_PROMPT_CACHE=1 LLM_MLOCK=1 ./scripts/llm-up.sh
+LLM_PROMPT_CACHE=1 LLM_MLOCK=1 ./scripts/qwen3.6-35b-a3b/llm-up.sh
 ```
 
 Trade-off: ~2–4 GB disk, ~5–15s cold start restore.
@@ -100,25 +101,25 @@ Trade-off: ~2–4 GB disk, ~5–15s cold start restore.
 
 If your system restarts under load:
 
-1. **Cap memory** — `LLM_MAX_MEM=10G ./scripts/llm-up.sh` (uses `systemd-run --scope MemoryMax=`).
+1. **Cap memory** — `LLM_MAX_MEM=10G ./scripts/qwen3.6-35b-a3b/llm-up.sh` (uses `systemd-run --scope MemoryMax=`).
 2. **Add swap** — `sudo fallocate -l 8G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile && echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab`
 3. **Lower `LLM_NCMOE`** — fewer layers in system RAM (MoE models).
 4. **Lower `LLM_CTX`** — `LLM_CTX=131072` saves ~1.3 GB VRAM.
 
-Check swap: `LLM_SWAP_CHECK=1 ./scripts/llm-up.sh`
+Check swap: `LLM_SWAP_CHECK=1 ./scripts/qwen3.6-35b-a3b/llm-up.sh`
 
 ## Docker
 
 ```bash
-docker build --build-arg CMAKE_CUDA_ARCHITECTURES=75 -t local-llm-opencode:latest .
-docker run -d --name llm-server --gpus all -p 8080:8080 \
-  -v ~/models/qwen3.6:/models/qwen3.6:ro \
-  local-llm-opencode:latest
+docker build --build-arg CMAKE_CUDA_ARCHITECTURES=70 -t local-llm-opencode:latest .
+docker run -d --name llm-server --gpus all -p 127.0.0.1:8080:8080 \
+  -v ~/models/qwen3.6:/models/qwen3.6:ro local-llm-opencode:latest
+docker stop llm-server     # graceful; docker kill to force
 ```
 
-**Shutting down:** `docker stop llm-server` (graceful) or `docker kill llm-server` (immediate)
-
-Override flags by appending: `--n-cpu-moe 16 -c 131072 --prompt-cache /llama-cache/model-kvcache.bin --prompt-cache-all`
+The image contains only `llama-server` (pinned `LLAMA_REF=b12375`); OpenCode runs on the host.
+For the Ornith command and flag overrides see `README.md`. Append flags after the image name,
+e.g. `--n-cpu-moe 16 -c 131072`.
 
 ## Quick verification
 

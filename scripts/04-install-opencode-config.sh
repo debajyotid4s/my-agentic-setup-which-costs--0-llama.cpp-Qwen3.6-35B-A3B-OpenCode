@@ -33,8 +33,28 @@ echo "Installing OpenCode files into $CFG"
 install_file "$ROOT/config/opencode.json"                  "$CFG/opencode.json"
 install_file "$ROOT/config/AGENTS.global.md"               "$CFG/AGENTS.md"
 install_file "$ROOT/config/commands/handoff.md"            "$CFG/commands/handoff.md"
-install_file "$ROOT/config/plugins/better-compaction.ts"   "$CFG/plugins/better-compaction.ts"
+install_file "$ROOT/config/plugins/deferred-compaction/index.ts" "$CFG/plugins/deferred-compaction/index.ts"
+install_file "$ROOT/config/plugins/deferred-compaction/plugin.ts" "$CFG/plugins/deferred-compaction/plugin.ts"
+install_file "$ROOT/config/plugins/deferred-compaction/state.ts" "$CFG/plugins/deferred-compaction/state.ts"
+
+# The V1 plugin used the old @opencode-ai/plugin API and cannot load in V2.
+# Keep it as a backup instead of leaving a broken file in the plugin directory.
+if [[ -f "$CFG/plugins/better-compaction.ts" ]]; then
+  mv "$CFG/plugins/better-compaction.ts" "$CFG/plugins/better-compaction.ts.v1.bak.$STAMP"
+  echo "  retired V1 plugin -> $CFG/plugins/better-compaction.ts.v1.bak.$STAMP"
+fi
+
+# V2 plugins import from @opencode/plugin, not @opencode-ai/plugin.
+if [[ ! -d "$CFG/node_modules/@opencode/plugin" ]]; then
+  if command -v npm >/dev/null 2>&1; then
+    echo "Installing @opencode/plugin into $CFG ..."
+    ( cd "$CFG" && npm install --no-fund --no-audit --save @opencode/plugin@2.3.0 )
+  else
+    echo "WARN: @opencode/plugin is missing and npm is unavailable." >&2
+    echo "      Install it manually: cd $CFG && npm install @opencode/plugin@2.3.0" >&2
+  fi
+fi
 
 echo
-echo "Done. Next: start the server (scripts/llm-up.sh), then initialise each project with"
+echo "Done. Next: start the server (scripts/<model>/llm-up.sh), then initialise each project with"
 echo "scripts/05-init-project.sh /path/to/project"

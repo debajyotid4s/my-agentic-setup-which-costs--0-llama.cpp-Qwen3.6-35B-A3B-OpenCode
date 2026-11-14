@@ -10,11 +10,17 @@ Local model, one inference slot: every token in context costs real time. Be lean
 
 ## Context budget
 - Never cat whole large files or logs. Locate with grep -n / glob first, then read only the needed range (read with offset/limit, or sed -n 'a,bp'). Use head/tail -n 80 on any command that may be noisy.
-- Tool output is NOT cleared automatically (pruning is off). Everything you print stays in context until compaction, so keep commands quiet and filtered.
+- Old tool output is cleared automatically, so never rely on it being there. Keep commands quiet and filtered; record facts you still need in `.agent/SCRATCH.md`.
 - Issue independent reads/greps together in one turn instead of one per turn.
 - Prefer targeted edits over rewriting files. Write files longer than ~150 lines in chunks (one response is capped at ~32K tokens).
 - Avoid subagents (task tool) unless the exploration would otherwise dump thousands of lines into context. There is one inference slot: subagents run serially and can evict the main session's cache.
 - Keep key facts in .agent/SCRATCH.md so they survive compaction.
+
+## Compaction and checkpoints
+- Automatic compaction is OFF. A controller compacts the current session at a safe point: no execution running, no tool in flight, and your last step ended normally (`stop`).
+- Do not start new work when the context is large. Finish the current tool loop, reconcile the TODO list, append one line to `.agent/SCRATCH.md`, then end the turn with a normal stop.
+- Compaction preserves the session and keeps recent turns; do NOT run `/handoff` + `/new` after a normal compaction.
+- `/compact` is routine context maintenance. `/handoff` + `/new` is a deliberate session reset only (new goal, damaged history, model switch).
 
 ## Edit and test loop
 - Re-read the exact lines right before editing them, so the match is exact.

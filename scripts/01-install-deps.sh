@@ -77,10 +77,10 @@ if [[ "${SKIP_OPENCODE:-0}" != "1" ]]; then
   if command -v opencode >/dev/null 2>&1; then
     echo "opencode already installed: $(opencode --version 2>/dev/null || echo 'version unknown')"
   else
-    # Official install script from opencode.ai/docs (installs OpenCode 1).
+    # Official install script from opencode.ai/docs (installs the current release).
     curl -fsSL https://opencode.ai/install | bash
   fi
-  warn "This bundle was written against OpenCode 1 config. Record your version with: opencode --version"
+  warn "This bundle targets OpenCode 2 (v2.3.0 or newer). Check with: opencode --version"
 fi
 
 say "Done"

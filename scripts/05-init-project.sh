@@ -63,4 +63,4 @@ fi
 
 echo
 echo "Project ready: $PROJECT"
-echo "Start the model server (scripts/llm-up.sh), then run 'opencode' inside the project."
+echo "Start the model server (scripts/<model>/llm-up.sh), then run 'opencode' inside the project."

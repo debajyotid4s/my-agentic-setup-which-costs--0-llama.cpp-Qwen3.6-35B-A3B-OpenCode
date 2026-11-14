@@ -1,34 +1,40 @@
 # syntax=docker/dockerfile:1
 #
-# Build:
-#   docker build -t local-llm-opencode:latest .
+# llama.cpp server image (OpenCode itself runs on the host and talks to it over
+# http://127.0.0.1:8080/v1). Pinned to a llama.cpp release that supports the
+# flags the launchers use, including SM70 Flash-Attention for Ornith-1.5.
 #
-# Run (requires NVIDIA Container Toolkit):
-#   # For Qwen3.6-35B-A3B:
-#   docker run --rm -it --gpus all -p 127.0.0.1:8080:8080 \
-#     -v ~/models/qwen3.6:/models/qwen3.6:ro \
-#     local-llm-opencode:latest
-#
-#   # For Ornith-1.5-35B-A3B:
-#   docker run --rm -it --gpus all -p 127.0.0.1:8080:8080 \
-#     -v ~/models/ornith1.5:/models/ornith1.5:ro \
-#     local-llm-opencode:latest
-#
-# For your GPU arch, rebuild with the correct arch:
+# Build (pick your GPU arch):
 #   docker build --build-arg CMAKE_CUDA_ARCHITECTURES=70 -t local-llm-opencode:latest .
 #
-# Override server flags by appending to docker run:
-#   docker run --rm -it --gpus all -p 127.0.0.1:8080:8080 \
+# Run (requires NVIDIA Container Toolkit). Qwen3.6-35B-A3B is the default CMD:
+#   docker run -d --name llm-server --gpus all -p 127.0.0.1:8080:8080 \
 #     -v ~/models/qwen3.6:/models/qwen3.6:ro \
+#     local-llm-opencode:latest
+#
+# Ornith-1.5-35B-A3B (IQ4_XS, 256K, same flags as scripts/ornith-1.5-35b-a3b/llm-up.sh):
+#   docker run -d --name llm-server --gpus all -p 127.0.0.1:8080:8080 \
+#     -v ~/models/ornith1.5:/models/ornith1.5:ro \
 #     local-llm-opencode:latest \
-#     --n-cpu-moe 16 -c 131072
+#     -m /models/ornith1.5/Ornith-1.5-35B-A3B-IQ4_XS.gguf \
+#     --alias ornith-1.5-35b-a3b-iq4-xs -ngl auto --n-cpu-moe 18 --fit off \
+#     -c 262144 -np 1 -fa on -ctk q8_0 -ctv q8_0 -b 2048 -ub 512 --jinja \
+#     --reasoning off --chat-template-kwargs '{"enable_thinking":false}' \
+#     --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.0 \
+#     --host 127.0.0.1 --port 8080
 #
 # The model is mounted from the host so the image stays small.
 # Download it first: scripts/03-download-model.sh
+#
+# Mixed K/V cache types (e.g. q8_0/q4_0) require -DGGML_CUDA_FA_ALL_QUANTS=ON
+# in the build stage; the default carries only a few predefined quant pairs
+# (q4_0/q4_0, q8_0/q8_0, f16, bf16).
 
 ARG BASE=nvidia/cuda:12.9.0-devel-ubuntu24.04
 ARG RUNTIME=nvidia/cuda:12.9.0-runtime-ubuntu24.04
-ARG LLAMA_REF=v9061
+# Current llama.cpp release tag. Keep this at or above commit 77e2db8 for
+# Ornith-1.5 (SM70 FA for Dk=256) and 70de1e28 for --reasoning-budget.
+ARG LLAMA_REF=b12375
 ARG CMAKE_CUDA_ARCHITECTURES=70
 
 # ── Build stage ──────────────────────────────────────────────────────────────
@@ -73,13 +79,13 @@ RUN mkdir -p /models/qwen3.6 /models/ornith1.5
 RUN mkdir -p /llama-cache
 VOLUME ["/llama-cache"]
 
-EXPOSE 127.0.0.1:8080
+EXPOSE 8080
 
 ENTRYPOINT ["/usr/local/bin/llama-server"]
 
-# Default: Qwen3.6-35B-A3B (UD-IQ4_XS)
-# Override by appending different flags to docker run, e.g.:
-#   --n-cpu-moe 9 -ctv q4_0  (for Ornith-1.5-35B-A3B with IQ3_XS)
+# Default: Qwen3.6-35B-A3B (UD-IQ4_XS) at 256K, matched to
+# scripts/qwen3.6-35b-a3b/llm-up.sh. Append flags after the image name to
+# override anything; see the header for the Ornith-1.5 command.
 # Warm-start flags: --timeout 0 disables idle KV cache eviction.
 # For prompt-cache persistence, mount /llama-cache and add:
 #   --prompt-cache /llama-cache/qwen3.6-35b-a3b-kvcache.bin --prompt-cache-all

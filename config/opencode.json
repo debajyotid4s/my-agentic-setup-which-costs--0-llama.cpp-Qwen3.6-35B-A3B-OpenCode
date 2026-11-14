@@ -1,42 +1,67 @@
 {
   "$schema": "https://opencode.ai/config.json",
 
-  "model": "local/qwen3.6-35b-a3b",
+  "model": "v100/ornith-1.5-35b-a3b-iq4-xs",
   "small_model": "opencode/deepseek-v4.1-flash-free",
 
+  "instructions": [".agent/HANDOFF.md"],
+
   "compaction": {
-    "auto": true,
-    "prune": false,
-    "reserved": 49152
+    "auto": false,
+    "keep": { "tokens": 15000 },
+    "buffer": "20%"
   },
 
-  "agent": {
-    "build":      { "temperature": 0.6, "top_p": 0.95 },
-    "plan":       { "temperature": 0.6, "top_p": 0.95 },
-    "general":    { "temperature": 0.6, "top_p": 0.95 },
-    "explore":    { "temperature": 0.6, "top_p": 0.95 },
-    "compaction": { "temperature": 0.6, "top_p": 0.95 }
+  "experimental": {
+    "todo": true,
+    "background_compaction": false
   },
 
-  "provider": {
-    "local": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "llama.cpp (local GPU)",
+  "permissions": [
+    { "action": "shell", "resource": "rm *", "effect": "ask" },
+    { "action": "shell", "resource": "rm -rf *", "effect": "deny" },
+    { "action": "shell", "resource": "git push*", "effect": "ask" },
+    { "action": "shell", "resource": "sudo *", "effect": "ask" },
+    { "action": "shell", "resource": "mkfs*", "effect": "deny" },
+    { "action": "shell", "resource": "dd if=*", "effect": "deny" }
+  ],
 
-      "options": {
+  "providers": {
+    "v100": {
+      "name": "llama.cpp (Tesla V100)",
+      "package": "@opencode/ai/providers/openai-compatible",
+
+      "settings": {
         "baseURL": "http://127.0.0.1:8080/v1",
         "headerTimeout": false,
         "chunkTimeout": false
       },
 
       "models": {
+        "ornith-1.5-35b-a3b-iq4-xs": {
+          "name": "Ornith-1.5 35B-A3B (IQ4_XS, 256K)",
+          "capabilities": {
+            "tools": true,
+            "reasoning": { "supported": true, "toggle": true },
+            "temperature": true,
+            "input": ["text"],
+            "output": ["text"]
+          },
+          "limit": {
+            "context": 262144,
+            "input": 229376,
+            "output": 32768
+          }
+        },
         "qwen3.6-35b-a3b": {
-          "name": "Qwen3.6 35B-A3B (256K)",
-
-          "tool_call": true,
-          "reasoning": true,
-          "temperature": true,
-
+          "name": "Qwen3.6 35B-A3B (IQ4_XS, 256K)",
+          "capabilities": {
+            "tools": true,
+            "reasoning": { "supported": true, "toggle": true },
+            "temperature": true,
+            "input": ["text"],
+            "output": ["text"]
+          },
           "limit": {
             "context": 262144,
             "input": 229376,
@@ -45,36 +70,5 @@
         }
       }
     }
-  },
-
-  "permissions": {
-    "rules": [
-      {
-        "match": { "command": "rm", "shell": true },
-        "mode": "ask"
-      },
-      {
-        "match": { "command": "rm -rf", "shell": true },
-        "mode": "deny"
-      },
-      {
-        "match": { "command": "git push", "shell": true },
-        "mode": "ask"
-      },
-      {
-        "match": { "command": "sudo", "shell": true },
-        "mode": "ask"
-      },
-      {
-        "match": { "command": "mkfs", "shell": true },
-        "mode": "deny"
-      },
-      {
-        "match": { "command": "dd if=", "shell": true },
-        "mode": "deny"
-      }
-    ]
-  },
-
-  "_small_model_note": "WARNING: small_model uses a remote free tier. Titles are sent to a third party. If the model ID rotates out, OpenCode may fall back to your single local slot and evict the cache. Consider setting small_model to your local model or disabling it."
+  }
 }
