@@ -17,8 +17,8 @@ Local model, one inference slot: every token in context costs real time. Be lean
 - Keep key facts in .agent/SCRATCH.md so they survive compaction.
 
 ## Compaction and checkpoints
-- Automatic compaction is OFF. A controller compacts the current session at a safe point: no execution running, no tool in flight, and your last step ended normally (`stop`).
-- Do not start new work when the context is large. Finish the current tool loop, reconcile the TODO list, append one line to `.agent/SCRATCH.md`, then end the turn with a normal stop.
+- Automatic compaction is OFF. A controller compacts the current session at a safe point: no execution running, no tool in flight, and the turn is over (normal `stop`, or the execution failed/was interrupted).
+- The controller cannot compact mid-turn. If a turn grows long (roughly >15 tool calls) or the client shows context above ~75%, reach a natural boundary (tests green, milestone done), append one line to `.agent/SCRATCH.md`, and end the turn so compaction can run.
 - Compaction preserves the session and keeps recent turns; do NOT run `/handoff` + `/new` after a normal compaction.
 - `/compact` is routine context maintenance. `/handoff` + `/new` is a deliberate session reset only (new goal, damaged history, model switch).
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Launch Ornith-1.5-35B-A3B-IQ4_XS with llama.cpp on:
 #   NVIDIA Tesla V100 16 GB VRAM + 16 GB system RAM
-# Target: one agent session, 256K context, deferred compaction at 80% (~210K tokens).
+# Target: one agent session, 256K context, deferred compaction at 75% (~197K tokens).
 #
 # Hardware/runtime notes:
 # - This is a Qwen3.5-MoE model: 40 text layers, 256 routed experts,
@@ -51,7 +51,7 @@
 #   LLM_KV_K=q8_0, LLM_KV_V=q8_0
 #   LLM_THREADS, LLM_THREADS_BATCH
 #   LLM_TEMP=0.6, LLM_TOP_P=0.95, LLM_TOP_K=20, LLM_MIN_P=0.0
-#   LLM_COMPACTION_AT=209715 (client threshold; deferred-compaction targets 80% of LLM_CTX)
+#   LLM_COMPACTION_AT=196608 (client threshold; deferred-compaction targets 75% of LLM_CTX)
 #   LLM_MMPROJ= optional image projector; LLM_USE_MTP=0/1
 #   LLM_LOG_FILE (empty disables tee logging)
 
@@ -83,7 +83,7 @@ TEMP="${LLM_TEMP:-0.6}"
 TOP_P="${LLM_TOP_P:-0.95}"
 TOP_K="${LLM_TOP_K:-20}"
 MIN_P="${LLM_MIN_P:-0.0}"
-COMPACTION_AT="${LLM_COMPACTION_AT:-209715}"
+COMPACTION_AT="${LLM_COMPACTION_AT:-196608}"
 MMPROJ="${LLM_MMPROJ:-}"
 USE_MTP="${LLM_USE_MTP:-0}"
 THINKING="${LLM_THINKING:-0}"

@@ -106,6 +106,25 @@ test("waits for a stop finish, not a tool-calls step", () => {
   assert.equal(s.tick(T0), null)
 })
 
+test("compacts after the turn is interrupted on a tool-calls step", () => {
+  const s = setup()
+  const id = created(s)
+  s.handle({ type: "session.execution.started", data: { sessionID: id } }, T0)
+  s.handle({ type: "session.tool.called", data: { sessionID: id, id: "call_1" } }, T0)
+  step(s, id, 900, "tool-calls")
+  s.handle({ type: "session.execution.interrupted", data: { sessionID: id } }, T0)
+  assert.equal(s.tick(T0), id)
+})
+
+test("compacts after the turn fails on a tool-calls step", () => {
+  const s = setup()
+  const id = created(s)
+  s.handle({ type: "session.execution.started", data: { sessionID: id } }, T0)
+  step(s, id, 900, "tool-calls")
+  s.handle({ type: "session.execution.failed", data: { sessionID: id } }, T0)
+  assert.equal(s.tick(T0), id)
+})
+
 test("prewarms only after the idle window", () => {
   const s = setup()
   const id = created(s)

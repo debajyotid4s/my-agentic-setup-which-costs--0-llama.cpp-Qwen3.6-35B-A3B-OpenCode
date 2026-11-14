@@ -37,6 +37,7 @@ export interface SessionState {
   idle: boolean
   tools: Set<string>
   lastFinish: string | null
+  lastExecution: "succeeded" | "failed" | "interrupted" | null
   promptTokens: number
   lastActivityAt: number
   pending: boolean
@@ -64,8 +65,10 @@ export interface EventLike {
 }
 
 export const DEFAULTS: Omit<SchedulerOptions, "providerID"> = {
-  thresholdRatio: 0.8,
-  prewarmRatio: 0.7,
+  // 75% leaves ~65K tokens of headroom: a long tool loop can add tens of
+  // thousands of tokens before the turn ends and the safe point arrives.
+  thresholdRatio: 0.75,
+  prewarmRatio: 0.65,
   prewarmIdleMs: 10 * 60 * 1000,
   retryMs: 60 * 1000,
   maxBackoffSteps: 3,
@@ -94,6 +97,7 @@ function newSession(id: string, now: number): SessionState {
     idle: true,
     tools: new Set<string>(),
     lastFinish: null,
+    lastExecution: null,
     promptTokens: 0,
     lastActivityAt: now,
     pending: false,
@@ -223,6 +227,7 @@ export class CompactionScheduler {
         s.executing = true
         s.idle = false
         s.lastFinish = null
+        s.lastExecution = null
         s.lastActivityAt = now
         break
       case "session.execution.succeeded":
@@ -232,6 +237,14 @@ export class CompactionScheduler {
         // sessions. A finished execution is the authoritative end of the loop.
         s.executing = false
         s.idle = true
+        s.lastExecution =
+          type === "session.execution.succeeded"
+            ? "succeeded"
+            : type === "session.execution.failed"
+              ? "failed"
+              : "interrupted"
+        // The loop is over: no tool call will be resumed by the agent.
+        if (s.lastExecution !== "succeeded") s.tools.clear()
         s.lastActivityAt = now
         break
       case "session.status": {
@@ -321,7 +334,12 @@ export class CompactionScheduler {
       if (!s.managed || s.parent) continue
       if (s.compacting || s.executing || s.tools.size > 0) continue
       if (!s.idle) continue
-      if (s.lastFinish !== "stop") continue
+      // A completed stop is the normal checkpoint. An interrupted or failed
+      // execution is also final: the loop will not resume on its own, so a
+      // high-context session must not stay stuck behind finish="tool-calls".
+      const finished = s.lastFinish === "stop"
+      const aborted = s.lastExecution === "interrupted" || s.lastExecution === "failed"
+      if (!finished && !aborted) continue
 
       if (s.requested && s.requestedAt > 0 && now - s.requestedAt > this.options.requestTimeoutMs) {
         this.clearRequest(s)

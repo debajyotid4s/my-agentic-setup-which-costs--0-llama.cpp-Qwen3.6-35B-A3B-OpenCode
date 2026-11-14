@@ -77,7 +77,7 @@ All knobs are environment variables on `llm-up.sh`.
 | `LLM_UBATCH` / `LLM_BATCH` | 128–512 | Micro-batch; costs VRAM, helps long prefill |
 | `LLM_THREADS` | physical cores | Decode threads |
 | `LLM_KV_K` / `LLM_KV_V` | `q8_0` / `q8_0` | KV cache quant; `q4_0` V saves VRAM |
-| `LLM_COMPACTION_AT` | `209715` | Client threshold hint (80% of 256K) |
+| `LLM_COMPACTION_AT` | `196608` | Client threshold hint (75% of 256K) |
 | `LLM_MOE_CACHE_MIB` | `1024` | Ornith only: drop to 512/0 on CUDA OOM |
 | `LLM_TEMP` / `LLM_TOP_P` / `LLM_TOP_K` | `0.6` / `0.95` / `20` | Sampling |
 | `LLM_MODEL` / `LLM_SERVER` / `LLM_PORT` | — | Override GGUF, binary, port |
@@ -93,7 +93,7 @@ Never set OpenCode's model `limit.context` above the server's `LLM_CTX`.
 `compaction.auto: false`. The `deferred-compaction` plugin compacts only at a safe point:
 execution finished, no tool in flight, last step `stop`, session idle.
 
-- Pending at **80%** of the window; proactive at **70%** after 10 min idle.
+- Pending at **75%** of the window; proactive at **65%** after 10 min idle.
 - Keeps ~15,000 recent tokens (`compaction.keep.tokens`); the session continues, no `/new`.
 - One compaction at a time; manages the local `v100` provider only (`*` = all providers).
 - `/compact` still works manually; `/handoff` + `/new` only for a deliberate reset.

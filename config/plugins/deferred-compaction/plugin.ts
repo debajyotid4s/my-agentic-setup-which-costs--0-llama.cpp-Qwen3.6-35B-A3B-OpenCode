@@ -13,8 +13,8 @@
 //   DEFERRED_COMPACTION_PROVIDER   provider to manage (default: v100; "*" = all,
 //                                  safe only when every provider reports
 //                                  uncached input + cache.read like llama.cpp)
-//   DEFERRED_COMPACTION_THRESHOLD  threshold ratio (default: 0.8)
-//   DEFERRED_COMPACTION_PREWARM    prewarm ratio (default: 0.7)
+//   DEFERRED_COMPACTION_THRESHOLD  threshold ratio (default: 0.75)
+//   DEFERRED_COMPACTION_PREWARM    prewarm ratio (default: 0.65)
 //   DEFERRED_COMPACTION_IDLE_MS    idle window before prewarm (default: 600000)
 //   DEFERRED_COMPACTION_POLL_MS    timer resolution (default: 15000)
 import { CompactionScheduler, type EventLike } from "./state.ts"
@@ -57,8 +57,8 @@ export const definition = {
 
     const scheduler = new CompactionScheduler({
       providerID,
-      thresholdRatio: num(process.env.DEFERRED_COMPACTION_THRESHOLD, 0.8),
-      prewarmRatio: num(process.env.DEFERRED_COMPACTION_PREWARM, 0.7),
+      thresholdRatio: num(process.env.DEFERRED_COMPACTION_THRESHOLD, 0.75),
+      prewarmRatio: num(process.env.DEFERRED_COMPACTION_PREWARM, 0.65),
       prewarmIdleMs: num(process.env.DEFERRED_COMPACTION_IDLE_MS, 10 * 60 * 1000),
     })
 
